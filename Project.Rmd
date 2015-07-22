@@ -1,0 +1,62 @@
+---
+title: "Project Write-up"
+output: html_document
+---
+
+First I load the necessary packages & download the datasets:
+```{r,warnings=FALSE,message=FALSE,cache=TRUE}
+library(dplyr)
+library(caret)
+library(randomForest)
+
+trainURL <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+testURL <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+
+training <- read.csv(trainURL,na.strings=c("NA","","NaN"))
+testing <- read.csv(testURL,na.strings=c("NA","","NaN"))
+```
+
+Second, I narrowed the dataset down to features that I thought would be most relevant to consider for model selection.  I first removed columns that would probably not be useful when making out-of-sample predictions such as row index, user_names, timestamps and derived measures.  Then I removed columns whose proportion of missing data was > 97%.  Lastly, I removed columns that were highly correlated above a threshold of 0.75.  This left me with a more reasonable number of predictors (31) rather than the unwieldy 160 columns in the original datasets.
+
+```{r,cache=TRUE}
+# Remove non-numerics and timestamp data
+training <- training[,8:160]
+
+# Explore number of missing for each predictor
+nas <- sapply(as.data.frame(sapply(training,is.na)),sum)
+
+# Remove predictors that are mostly missing
+training <- training[,which(nas < 19216)]
+
+# Find and remove highly correlated
+nums <- sapply(training,is.numeric)
+filtered.nums <- training[complete.cases(training),nums]
+corrs <- cor(filtered.nums)
+highlycorr <- findCorrelation(corrs,cutoff=0.75)
+
+corr.names <- names(filtered.nums)[highlycorr]
+
+filtered <- training[,-which(names(training) %in% corr.names)]
+```
+
+I trained a random forest model with 3-fold cross-validation.
+
+```{r,cache=TRUE}
+# Train RF model with 3-fold cross-validation
+set.seed(1981)
+model <- train(classe~.,data=filtered,method="rf",trControl=trainControl(method="cv",number=3))
+
+model
+model$finalModel
+```
+
+The model was highly accurate with m=16 yielding an accuracy of >99% and an OOB estimate of error of 0.55%.
+
+```{r,echo=FALSE}
+test_preds <- predict(model,testing)
+for (i in 1:length(test_preds)){
+    filename <- paste0("problem_id_",i,".txt")
+    write.table(test_preds[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+}
+```
+
